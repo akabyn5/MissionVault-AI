@@ -1,5 +1,7 @@
 import random
 import time
+import requests
+import os
 from datetime import datetime, timezone
 
 
@@ -15,6 +17,12 @@ class TelemetryGenerator:
         self.payload_status = "ACTIVE"
 
         self.packet_count = 0
+
+        # Backend API endpoint
+        self.api_url = os.getenv(
+            "MISSIONVAULT_API_URL",
+            "http://127.0.0.1:8000/telemetry"
+            )
 
     def _normal_variation(self):
         """Generate realistic small changes."""
@@ -80,6 +88,27 @@ class TelemetryGenerator:
         }
 
         return telemetry
+    
+    def send_telemetry(self, telemetry):
+        """
+        Send a telemetry packet to the MissionVault AI backend.
+        """
+
+        try:
+            response = requests.post(
+                self.api_url,
+                json=telemetry,
+                timeout=5
+            )
+
+            print("\n=== TRANSMISSION RESULT ===")
+            print(f"Status Code : {response.status_code}")
+            print(f"Response    : {response.json()}")
+            print("===========================\n")
+
+        except requests.exceptions.RequestException as error:
+            print("\nCould not connect to backend.")
+            print(error)
 
 
 def main():
@@ -97,6 +126,8 @@ def main():
 
         for key, value in telemetry.items():
             print(f"{key:18}: {value}")
+            
+        generator.send_telemetry(telemetry)
 
         time.sleep(5)
 
