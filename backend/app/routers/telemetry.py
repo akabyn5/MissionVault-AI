@@ -1,9 +1,13 @@
 from fastapi import APIRouter
+
 from app.schemas.telemetry import Telemetry
+
 from app.services.telemetry_service import (
     save_telemetry,
     get_all_telemetry
 )
+
+from app.services.analysis_service import analyze_telemetry
 
 router = APIRouter()
 
@@ -20,12 +24,19 @@ def health_check():
 def receive_telemetry(data: Telemetry):
     print("\nTelemetry received:")
     print(data)
+
+    # Analyze telemetry
+    analysis = analyze_telemetry(data)
+
+    # Store telemetry
     save_telemetry(data)
 
     return {
         "message": "Telemetry received successfully",
-        "satellite": data.satellite_id
+        "satellite": data.satellite_id,
+        "analysis": analysis
     }
+
 
 @router.get("/telemetry")
 def list_telemetry():
