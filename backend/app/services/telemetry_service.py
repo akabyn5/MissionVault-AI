@@ -7,3 +7,6 @@ def save_telemetry(data):
     print(f"Latest packet: {telemetry_storage[-1]}")
 
     return data
+
+def get_all_telemetry():
+    return telemetry_storage.copy()
