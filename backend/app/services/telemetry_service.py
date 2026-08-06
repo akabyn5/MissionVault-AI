@@ -1,10 +1,19 @@
+import json
 import logging
+from datetime import datetime, timezone
 
-from datetime import timedelta
+from sqlalchemy import func
+from sqlalchemy import select
 
+from app.database.database import SessionLocal
+from app.models.telemetry import TelemetryRecord
 from app.schemas.telemetry import Telemetry
 
-# Configure the logger for this module
+
+# ---------------------------------------------------------
+# Logging
+# ---------------------------------------------------------
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s | %(levelname)s | %(message)s"
@@ -12,420 +21,894 @@ logging.basicConfig(
 
 logger = logging.getLogger(__name__)
 
-# Temporary in-memory storage
-telemetry_storage: list[dict] = []
 
+# ---------------------------------------------------------
+# Helper functions
+# ---------------------------------------------------------
 
-def save_telemetry(data: Telemetry, analysis: dict):
+def _serialize_record(record: TelemetryRecord) -> dict:
     """
-    Store a telemetry packet together with its analysis.
+    Convert a database record into the same dictionary
+    structure used by the existing API.
+
+    This preserves compatibility with the frontend.
     """
 
-    record = {
-        "telemetry": data,
-        "analysis": analysis
+    return {
+        "telemetry": {
+            "satellite_id": record.satellite_id,
+            "battery": record.battery,
+            "temperature": record.temperature,
+            "signal_strength": record.signal_strength,
+            "cpu_load": record.cpu_load,
+            "payload_status": record.payload_status,
+            "timestamp": record.timestamp
+        },
+
+        "analysis": {
+            "is_anomaly": record.is_anomaly,
+            "severity": record.severity,
+            "alerts": json.loads(
+                record.alerts or "[]"
+            )
+        }
     }
 
-    telemetry_storage.append(record)
 
-    logger.info("Stored packets: %d", len(telemetry_storage))
-    logger.info("Latest record: %s", record)
+def _parse_timestamp(timestamp: str) -> datetime:
+    """
+    Convert an ISO 8601 timestamp string into a datetime object.
+    """
 
-    return record
+    parsed = datetime.fromisoformat(timestamp)
 
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(
+            tzinfo=timezone.utc
+        )
+
+    return parsed
+
+
+# ---------------------------------------------------------
+# Save telemetry
+# ---------------------------------------------------------
+
+def save_telemetry(
+    data: Telemetry,
+    analysis: dict
+) -> dict:
+    """
+    Persist a telemetry packet and its analysis
+    into the SQLite database.
+    """
+
+    record = TelemetryRecord(
+        satellite_id=data.satellite_id,
+        battery=data.battery,
+        temperature=data.temperature,
+        signal_strength=data.signal_strength,
+        cpu_load=data.cpu_load,
+        payload_status=data.payload_status,
+        timestamp=data.timestamp.isoformat(),
+
+        is_anomaly=analysis.get(
+            "is_anomaly",
+            False
+        ),
+
+        severity=analysis.get(
+            "severity",
+            "normal"
+        ),
+
+        alerts=json.dumps(
+            analysis.get(
+                "alerts",
+                []
+            )
+        )
+    )
+
+    with SessionLocal() as db:
+
+        db.add(record)
+
+        db.commit()
+
+        db.refresh(record)
+
+        logger.info(
+            "Stored telemetry packet ID: %d",
+            record.id
+        )
+
+        logger.info(
+            "Total stored packets: %d",
+            db.scalar(
+                select(
+                    func.count(
+                        TelemetryRecord.id
+                    )
+                )
+            )
+        )
+
+        return _serialize_record(
+            record
+        )
+
+
+# ---------------------------------------------------------
+# Get all telemetry
+# ---------------------------------------------------------
 
 def get_all_telemetry() -> list[dict]:
     """
-    Return a copy of all stored telemetry records.
+    Return all telemetry records ordered by insertion order.
     """
 
-    return telemetry_storage.copy()
+    with SessionLocal() as db:
+
+        statement = (
+            select(TelemetryRecord)
+            .order_by(
+                TelemetryRecord.id.asc()
+            )
+        )
+
+        records = db.scalars(
+            statement
+        ).all()
+
+        return [
+            _serialize_record(record)
+            for record in records
+        ]
+
+
+# ---------------------------------------------------------
+# Get latest telemetry
+# ---------------------------------------------------------
 
 def get_latest_telemetry() -> dict | None:
     """
-    Return the most recent telemetry record, or None if storage is empty.
-    """
-    if not telemetry_storage:
-        logger.warning("No telemetry records found.")
-        return None
-    
-    return telemetry_storage[-1]
-
-def get_telemetry_stats() -> dict:
-    """
-    Calculate basic statistics for all stored telemetry records.
+    Return the most recently stored telemetry record.
     """
 
-    total_packets = len(telemetry_storage)
+    with SessionLocal() as db:
 
-    normal = 0
-    warning = 0
-    critical = 0
+        statement = (
+            select(TelemetryRecord)
+            .order_by(
+                TelemetryRecord.id.desc()
+            )
+            .limit(1)
+        )
 
-    for record in telemetry_storage:
-        severity = record["analysis"]["severity"]
+        record = db.scalars(
+            statement
+        ).first()
 
-        if severity == "normal":
-            normal += 1
+        if record is None:
 
-        elif severity == "warning":
-            warning += 1
+            logger.warning(
+                "No telemetry records found."
+            )
 
-        elif severity == "critical":
-            critical += 1
+            return None
 
-    anomalies = warning + critical
+        return _serialize_record(
+            record
+        )
 
-    return {
-        "total_packets": total_packets,
-        "normal": normal,
-        "warning": warning,
-        "critical": critical,
-        "anomalies": anomalies
-    }
 
-def get_health_metrics() -> dict:
+# ---------------------------------------------------------
+# Current mission status
+# ---------------------------------------------------------
+
+def get_current_mission_status() -> str:
     """
-    Calculate engineering metrics from all stored telemetry records.
-    """
+    Determine the current mission status using only
+    the latest telemetry packet.
 
-    if not telemetry_storage:
-        return {
-            "battery": {},
-            "temperature": {},
-            "cpu": {},
-            "signal": {}
-        }
-
-    batteries = []
-    temperatures = []
-    cpu_loads = []
-    signal_strengths = []
-
-    for record in telemetry_storage:
-
-        telemetry = record["telemetry"]
-
-        batteries.append(telemetry.battery)
-        temperatures.append(telemetry.temperature)
-        cpu_loads.append(telemetry.cpu_load)
-        signal_strengths.append(telemetry.signal_strength)
-
-    return {
-        "battery": {
-            "average": round(sum(batteries) / len(batteries), 2),
-            "minimum": min(batteries),
-            "maximum": max(batteries)
-        },
-
-        "temperature": {
-            "average": round(sum(temperatures) / len(temperatures), 2),
-            "minimum": min(temperatures),
-            "maximum": max(temperatures)
-        },
-
-        "cpu": {
-            "average": round(sum(cpu_loads) / len(cpu_loads), 2),
-            "minimum": min(cpu_loads),
-            "maximum": max(cpu_loads)
-        },
-
-        "signal": {
-            "average": round(sum(signal_strengths) / len(signal_strengths), 2),
-            "minimum": min(signal_strengths),
-            "maximum": max(signal_strengths)
-        }
-    }
-
-def get_time_statistics() -> dict:
-    """
-    Calculate time-based statistics for the telemetry mission.
-    """
-
-    if not telemetry_storage:
-        return {
-            "first_packet": None,
-            "last_packet": None,
-            "mission_duration_seconds": 0,
-            "packets": 0,
-            "average_interval_seconds": 0,
-            "packets_per_minute": 0,
-            "packets_per_hour": 0
-        }
-
-    timestamps = []
-
-    for record in telemetry_storage:
-        timestamps.append(record["telemetry"].timestamp)
-
-    first_packet = timestamps[0]
-    last_packet = timestamps[-1]
-
-    packet_count = len(timestamps)
-
-    mission_duration = (
-        last_packet - first_packet
-    ).total_seconds()
-
-    # Prevent division by zero
-    if mission_duration <= 0:
-        average_interval = 0
-        packets_per_minute = 0
-        packets_per_hour = 0
-
-    else:
-        average_interval = mission_duration / (packet_count - 1) \
-            if packet_count > 1 else 0
-
-        packets_per_minute = packet_count / (mission_duration / 60)
-
-        packets_per_hour = packet_count / (mission_duration / 3600)
-
-    return {
-        "first_packet": first_packet.isoformat(),
-        "last_packet": last_packet.isoformat(),
-        "mission_duration_seconds": round(mission_duration, 2),
-        "packets": packet_count,
-        "average_interval_seconds": round(average_interval, 2),
-        "packets_per_minute": round(packets_per_minute, 2),
-        "packets_per_hour": round(packets_per_hour, 2)
-    }
-
-def get_mission_summary() -> dict:
-    """
-    Return a complete mission summary for dashboard use.
+    Historical statistics do not determine current status.
     """
 
     latest = get_latest_telemetry()
-    anomalies = get_anomalies()
 
-    return {
-        "statistics": get_telemetry_stats(),
+    if latest is None:
+        return "Unknown"
 
-        "metrics": get_health_metrics(),
+    severity = latest["analysis"].get(
+        "severity",
+        "normal"
+    ).lower()
 
-        "time": get_time_statistics(),
+    if severity == "critical":
+        return "Critical"
 
-        "latest": latest,
+    if severity == "warning":
+        return "Warning"
 
-        "anomalies": len(anomalies)
-    }
+    return "Healthy"
 
-def get_dashboard_data() -> dict:
+
+# ---------------------------------------------------------
+# Historical telemetry statistics
+# ---------------------------------------------------------
+
+def get_telemetry_stats() -> dict:
     """
-    Return all information required by the frontend dashboard
-    in a single request.
+    Calculate historical statistics from persistent telemetry.
+    """
+
+    with SessionLocal() as db:
+
+        total_packets = db.scalar(
+            select(
+                func.count(
+                    TelemetryRecord.id
+                )
+            )
+        ) or 0
+
+        normal = db.scalar(
+            select(
+                func.count(
+                    TelemetryRecord.id
+                )
+            ).where(
+                TelemetryRecord.severity == "normal"
+            )
+        ) or 0
+
+        warning = db.scalar(
+            select(
+                func.count(
+                    TelemetryRecord.id
+                )
+            ).where(
+                TelemetryRecord.severity == "warning"
+            )
+        ) or 0
+
+        critical = db.scalar(
+            select(
+                func.count(
+                    TelemetryRecord.id
+                )
+            ).where(
+                TelemetryRecord.severity == "critical"
+            )
+        ) or 0
+
+        anomalies = warning + critical
+
+        return {
+            "total_packets": total_packets,
+            "normal": normal,
+            "warning": warning,
+            "critical": critical,
+            "anomalies": anomalies
+        }
+
+
+# ---------------------------------------------------------
+# Engineering health metrics
+# ---------------------------------------------------------
+
+def get_health_metrics() -> dict:
+    """
+    Calculate engineering metrics directly from the database.
+    """
+
+    with SessionLocal() as db:
+
+        total_packets = db.scalar(
+            select(
+                func.count(
+                    TelemetryRecord.id
+                )
+            )
+        ) or 0
+
+        if total_packets == 0:
+
+            return {
+                "battery": {},
+                "temperature": {},
+                "cpu": {},
+                "signal": {}
+            }
+
+        battery_stats = db.execute(
+            select(
+                func.avg(
+                    TelemetryRecord.battery
+                ),
+                func.min(
+                    TelemetryRecord.battery
+                ),
+                func.max(
+                    TelemetryRecord.battery
+                )
+            )
+        ).one()
+
+        temperature_stats = db.execute(
+            select(
+                func.avg(
+                    TelemetryRecord.temperature
+                ),
+                func.min(
+                    TelemetryRecord.temperature
+                ),
+                func.max(
+                    TelemetryRecord.temperature
+                )
+            )
+        ).one()
+
+        cpu_stats = db.execute(
+            select(
+                func.avg(
+                    TelemetryRecord.cpu_load
+                ),
+                func.min(
+                    TelemetryRecord.cpu_load
+                ),
+                func.max(
+                    TelemetryRecord.cpu_load
+                )
+            )
+        ).one()
+
+        signal_stats = db.execute(
+            select(
+                func.avg(
+                    TelemetryRecord.signal_strength
+                ),
+                func.min(
+                    TelemetryRecord.signal_strength
+                ),
+                func.max(
+                    TelemetryRecord.signal_strength
+                )
+            )
+        ).one()
+
+        return {
+            "battery": {
+                "average": round(
+                    battery_stats[0],
+                    2
+                ),
+                "minimum": battery_stats[1],
+                "maximum": battery_stats[2]
+            },
+
+            "temperature": {
+                "average": round(
+                    temperature_stats[0],
+                    2
+                ),
+                "minimum": temperature_stats[1],
+                "maximum": temperature_stats[2]
+            },
+
+            "cpu": {
+                "average": round(
+                    cpu_stats[0],
+                    2
+                ),
+                "minimum": cpu_stats[1],
+                "maximum": cpu_stats[2]
+            },
+
+            "signal": {
+                "average": round(
+                    signal_stats[0],
+                    2
+                ),
+                "minimum": signal_stats[1],
+                "maximum": signal_stats[2]
+            }
+        }
+
+
+# ---------------------------------------------------------
+# Time statistics
+# ---------------------------------------------------------
+
+def get_time_statistics() -> dict:
+    """
+    Calculate time-based mission statistics.
+    """
+
+    with SessionLocal() as db:
+
+        packet_count = db.scalar(
+            select(
+                func.count(
+                    TelemetryRecord.id
+                )
+            )
+        ) or 0
+
+        if packet_count == 0:
+
+            return {
+                "first_packet": None,
+                "last_packet": None,
+                "mission_duration_seconds": 0,
+                "packets": 0,
+                "average_interval_seconds": 0,
+                "packets_per_minute": 0,
+                "packets_per_hour": 0
+            }
+
+        first_statement = (
+            select(TelemetryRecord)
+            .order_by(
+                TelemetryRecord.id.asc()
+            )
+            .limit(1)
+        )
+
+        last_statement = (
+            select(TelemetryRecord)
+            .order_by(
+                TelemetryRecord.id.desc()
+            )
+            .limit(1)
+        )
+
+        first_record = db.scalars(
+            first_statement
+        ).first()
+
+        last_record = db.scalars(
+            last_statement
+        ).first()
+
+        first_packet = _parse_timestamp(
+            first_record.timestamp
+        )
+
+        last_packet = _parse_timestamp(
+            last_record.timestamp
+        )
+
+        mission_duration = (
+            last_packet - first_packet
+        ).total_seconds()
+
+        if mission_duration <= 0:
+
+            average_interval = 0
+            packets_per_minute = 0
+            packets_per_hour = 0
+
+        else:
+
+            average_interval = (
+                mission_duration
+                / (packet_count - 1)
+                if packet_count > 1
+                else 0
+            )
+
+            packets_per_minute = (
+                packet_count
+                / (mission_duration / 60)
+            )
+
+            packets_per_hour = (
+                packet_count
+                / (mission_duration / 3600)
+            )
+
+        return {
+            "first_packet": first_record.timestamp,
+            "last_packet": last_record.timestamp,
+
+            "mission_duration_seconds": round(
+                mission_duration,
+                2
+            ),
+
+            "packets": packet_count,
+
+            "average_interval_seconds": round(
+                average_interval,
+                2
+            ),
+
+            "packets_per_minute": round(
+                packets_per_minute,
+                2
+            ),
+
+            "packets_per_hour": round(
+                packets_per_hour,
+                2
+            )
+        }
+
+
+# ---------------------------------------------------------
+# Mission summary
+# ---------------------------------------------------------
+
+def get_mission_summary() -> dict:
+    """
+    Return a complete mission summary.
     """
 
     latest = get_latest_telemetry()
 
     statistics = get_telemetry_stats()
 
-    recent_alerts = get_recent_anomalies(limit=10)
-
-    total_alerts = len(get_anomalies())
-
-    # -------------------------
-    # Determine mission status
-    # -------------------------
-
-    if statistics["critical"] > 0:
-        mission_status = "Critical"
-
-    elif statistics["warning"] > 0:
-        mission_status = "Warning"
-
-    else:
-        mission_status = "Healthy"
-
     return {
-
-        "mission_status": mission_status,
-
-        "latest": latest,
-
         "statistics": statistics,
 
         "metrics": get_health_metrics(),
 
         "time": get_time_statistics(),
 
-        "trends": get_trend_analysis(),
+        "latest": latest,
 
-        "alerts": recent_alerts,
-
-        "alert_count": total_alerts
+        "anomalies": statistics["anomalies"]
     }
+
+
+# ---------------------------------------------------------
+# Trend analysis
+# ---------------------------------------------------------
 
 def get_trend_analysis() -> dict:
     """
-    Analyze engineering trends by comparing the first and latest
-    telemetry packets.
+    Analyze engineering trends using the first and latest
+    persistent telemetry packets.
     """
 
-    if len(telemetry_storage) < 2:
+    with SessionLocal() as db:
+
+        first_statement = (
+            select(TelemetryRecord)
+            .order_by(
+                TelemetryRecord.id.asc()
+            )
+            .limit(1)
+        )
+
+        last_statement = (
+            select(TelemetryRecord)
+            .order_by(
+                TelemetryRecord.id.desc()
+            )
+            .limit(1)
+        )
+
+        first = db.scalars(
+            first_statement
+        ).first()
+
+        latest = db.scalars(
+            last_statement
+        ).first()
+
+        if first is None or latest is None:
+
+            return {
+                "message": (
+                    "At least two telemetry packets "
+                    "are required."
+                )
+            }
+
+        if first.id == latest.id:
+
+            return {
+                "message": (
+                    "At least two telemetry packets "
+                    "are required."
+                )
+            }
+
+        def calculate_trend(
+            first_value,
+            latest_value
+        ):
+
+            if latest_value > first_value:
+                return "increasing"
+
+            if latest_value < first_value:
+                return "decreasing"
+
+            return "stable"
+
         return {
-            "message": "At least two telemetry packets are required."
+
+            "battery": {
+                "first": first.battery,
+                "latest": latest.battery,
+                "trend": calculate_trend(
+                    first.battery,
+                    latest.battery
+                )
+            },
+
+            "temperature": {
+                "first": first.temperature,
+                "latest": latest.temperature,
+                "trend": calculate_trend(
+                    first.temperature,
+                    latest.temperature
+                )
+            },
+
+            "cpu": {
+                "first": first.cpu_load,
+                "latest": latest.cpu_load,
+                "trend": calculate_trend(
+                    first.cpu_load,
+                    latest.cpu_load
+                )
+            },
+
+            "signal": {
+                "first": first.signal_strength,
+                "latest": latest.signal_strength,
+                "trend": calculate_trend(
+                    first.signal_strength,
+                    latest.signal_strength
+                )
+            }
         }
 
-    first = telemetry_storage[0]["telemetry"]
-    latest = telemetry_storage[-1]["telemetry"]
 
-    def calculate_trend(first_value, latest_value):
-
-        if latest_value > first_value:
-            return "increasing"
-
-        elif latest_value < first_value:
-            return "decreasing"
-
-        return "stable"
-
-    return {
-        "battery": {
-            "first": first.battery,
-            "latest": latest.battery,
-            "trend": calculate_trend(
-                first.battery,
-                latest.battery
-            )
-        },
-
-        "temperature": {
-            "first": first.temperature,
-            "latest": latest.temperature,
-            "trend": calculate_trend(
-                first.temperature,
-                latest.temperature
-            )
-        },
-
-        "cpu": {
-            "first": first.cpu_load,
-            "latest": latest.cpu_load,
-            "trend": calculate_trend(
-                first.cpu_load,
-                latest.cpu_load
-            )
-        },
-
-        "signal": {
-            "first": first.signal_strength,
-            "latest": latest.signal_strength,
-            "trend": calculate_trend(
-                first.signal_strength,
-                latest.signal_strength
-            )
-        }
-    }
+# ---------------------------------------------------------
+# All anomalies
+# ---------------------------------------------------------
 
 def get_anomalies() -> list[dict]:
     """
-    Return every telemetry record that contains an anomaly.
+    Return every telemetry record containing an anomaly.
     """
 
-    anomalies = []
+    with SessionLocal() as db:
 
-    for record in telemetry_storage:
-        if record["analysis"]["is_anomaly"]:
-            anomalies.append(record)
+        statement = (
+            select(TelemetryRecord)
+            .where(
+                TelemetryRecord.is_anomaly.is_(True)
+            )
+            .order_by(
+                TelemetryRecord.id.asc()
+            )
+        )
 
-    return anomalies
+        records = db.scalars(
+            statement
+        ).all()
 
-def get_recent_anomalies(limit: int = 10) -> list[dict]:
+        return [
+            _serialize_record(record)
+            for record in records
+        ]
+
+
+# ---------------------------------------------------------
+# Recent anomalies
+# ---------------------------------------------------------
+
+def get_recent_anomalies(
+    limit: int = 10
+) -> list[dict]:
     """
     Return the most recent anomaly records.
 
-    Parameters
-    ----------
-    limit : int
-        Maximum number of anomalies to return.
-
-    Returns
-    -------
-    list[dict]
-        Most recent anomaly records.
+    The result is returned in oldest-to-newest order
+    so the frontend can reverse it for display.
     """
 
-    anomalies = get_anomalies()
+    if limit <= 0:
+        return []
 
-    return anomalies[-limit:]
+    with SessionLocal() as db:
 
-def get_telemetry_by_severity(level: str) -> list[dict]:
+        statement = (
+            select(TelemetryRecord)
+            .where(
+                TelemetryRecord.is_anomaly.is_(True)
+            )
+            .order_by(
+                TelemetryRecord.id.desc()
+            )
+            .limit(limit)
+        )
+
+        records = db.scalars(
+            statement
+        ).all()
+
+        records = list(
+            reversed(records)
+        )
+
+        return [
+            _serialize_record(record)
+            for record in records
+        ]
+
+
+# ---------------------------------------------------------
+# Filter by severity
+# ---------------------------------------------------------
+
+def get_telemetry_by_severity(
+    level: str
+) -> list[dict]:
     """
-    Return all telemetry records with the specified severity.
+    Return telemetry records for a specific severity.
     """
 
     level = level.lower()
 
-    matching_records = []
+    with SessionLocal() as db:
 
-    for record in telemetry_storage:
-        severity = record["analysis"]["severity"]
+        statement = (
+            select(TelemetryRecord)
+            .where(
+                TelemetryRecord.severity == level
+            )
+            .order_by(
+                TelemetryRecord.id.asc()
+            )
+        )
 
-        if severity == level:
-            matching_records.append(record)
+        records = db.scalars(
+            statement
+        ).all()
 
-    return matching_records
+        return [
+            _serialize_record(record)
+            for record in records
+        ]
 
-def get_telemetry_by_satellite(satellite_id: str) -> list[dict]:
+
+# ---------------------------------------------------------
+# Filter by satellite
+# ---------------------------------------------------------
+
+def get_telemetry_by_satellite(
+    satellite_id: str
+) -> list[dict]:
     """
-    Return all telemetry records for a specific satellite.
+    Return all telemetry records for a satellite.
     """
 
-    matching_records = []
+    with SessionLocal() as db:
 
-    for record in telemetry_storage:
-        current_id = record["telemetry"].satellite_id
+        statement = (
+            select(TelemetryRecord)
+            .where(
+                TelemetryRecord.satellite_id
+                == satellite_id
+            )
+            .order_by(
+                TelemetryRecord.id.asc()
+            )
+        )
 
-        if current_id == satellite_id:
-            matching_records.append(record)
+        records = db.scalars(
+            statement
+        ).all()
 
-    return matching_records
+        return [
+            _serialize_record(record)
+            for record in records
+        ]
+
+
+# ---------------------------------------------------------
+# Search telemetry
+# ---------------------------------------------------------
 
 def search_telemetry(
     satellite_id: str | None = None,
     severity: str | None = None
 ) -> list[dict]:
     """
-    Search telemetry records using optional filters.
-
-    Parameters
-    ----------
-    satellite_id : str | None
-        Filter by satellite ID.
-
-    severity : str | None
-        Filter by severity (normal, warning, critical).
-
-    Returns
-    -------
-    list[dict]
-        Matching telemetry records.
+    Search persistent telemetry records
+    using optional filters.
     """
 
-    results = []
+    with SessionLocal() as db:
 
-    for record in telemetry_storage:
+        statement = select(
+            TelemetryRecord
+        )
 
-        telemetry = record["telemetry"]
-        analysis = record["analysis"]
-
-        # -------------------------
-        # Satellite filter
-        # -------------------------
         if satellite_id is not None:
-            if telemetry.satellite_id != satellite_id:
-                continue
 
-        # -------------------------
-        # Severity filter
-        # -------------------------
+            statement = statement.where(
+                TelemetryRecord.satellite_id
+                == satellite_id
+            )
+
         if severity is not None:
-            if analysis["severity"] != severity.lower():
-                continue
 
-        results.append(record)
+            statement = statement.where(
+                TelemetryRecord.severity
+                == severity.lower()
+            )
 
-    return results
+        statement = statement.order_by(
+            TelemetryRecord.id.asc()
+        )
 
+        records = db.scalars(
+            statement
+        ).all()
+
+        return [
+            _serialize_record(record)
+            for record in records
+        ]
+
+
+# ---------------------------------------------------------
+# Dashboard data
+# ---------------------------------------------------------
+
+def get_dashboard_data() -> dict:
+    """
+    Return all information required by the frontend
+    dashboard in a single request.
+
+    The frontend does not need to know whether the
+    data comes from memory or persistent storage.
+    """
+
+    latest = get_latest_telemetry()
+
+    statistics = get_telemetry_stats()
+
+    recent_alerts = get_recent_anomalies(
+        limit=10
+    )
+
+    mission_status = (
+        get_current_mission_status()
+    )
+
+    return {
+
+        # Current mission state
+        "mission_status": mission_status,
+
+        # Most recent telemetry
+        "latest": latest,
+
+        # Historical statistics
+        "statistics": statistics,
+
+        # Engineering metrics
+        "metrics": get_health_metrics(),
+
+        # Time statistics
+        "time": get_time_statistics(),
+
+        # Long-term trends
+        "trends": get_trend_analysis(),
+
+        # Recent anomalies only
+        "alerts": recent_alerts,
+
+        # Total historical anomaly count
+        "alert_count": statistics["anomalies"]
+    }

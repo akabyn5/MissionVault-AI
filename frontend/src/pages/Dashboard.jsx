@@ -9,12 +9,12 @@ import MetricsCard from "../components/MetricsCard";
 import TrendsCard from "../components/TrendsCard";
 import AlertsCard from "../components/AlertsCard";
 
+const REFRESH_INTERVAL = 5000;
+
 export default function Dashboard() {
 
     const [dashboard, setDashboard] = useState(null);
-
     const [loading, setLoading] = useState(true);
-
     const [error, setError] = useState(null);
 
     async function loadDashboard() {
@@ -24,10 +24,11 @@ export default function Dashboard() {
             const data = await getDashboardData();
 
             setDashboard(data);
-
             setError(null);
 
         } catch (err) {
+
+            console.error("Failed to load dashboard:", err);
 
             setError(err.message);
 
@@ -41,17 +42,56 @@ export default function Dashboard() {
 
     useEffect(() => {
 
+        // Load data immediately when the dashboard starts.
         loadDashboard();
 
-        const interval = setInterval(loadDashboard, 5000);
+        // Refresh dashboard data every 5 seconds.
+        const intervalId = setInterval(() => {
 
-        return () => clearInterval(interval);
+            loadDashboard();
+
+        }, REFRESH_INTERVAL);
+
+        // Stop refreshing when the component is unmounted.
+        return () => {
+
+            clearInterval(intervalId);
+
+        };
 
     }, []);
 
-    if (loading) return <h2>Loading...</h2>;
+    if (loading) {
 
-    if (error) return <h2>{error}</h2>;
+        return (
+            <div>
+                <h2>Loading Mission Dashboard...</h2>
+            </div>
+        );
+
+    }
+
+    if (error) {
+
+        return (
+            <div>
+                <h2>MissionVault AI</h2>
+                <p>Failed to load dashboard.</p>
+                <p>{error}</p>
+            </div>
+        );
+
+    }
+
+    if (!dashboard) {
+
+        return (
+            <div>
+                <h2>No dashboard data available.</h2>
+            </div>
+        );
+
+    }
 
     return (
 

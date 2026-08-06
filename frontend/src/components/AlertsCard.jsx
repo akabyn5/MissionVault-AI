@@ -1,45 +1,220 @@
+function getAlertTitle(message) {
+    const normalizedMessage = message.toLowerCase();
+
+    if (normalizedMessage.includes("battery")) {
+        return "Battery Low";
+    }
+
+    if (normalizedMessage.includes("temperature")) {
+        return "Temperature High";
+    }
+
+    if (normalizedMessage.includes("signal")) {
+        return "Signal Weak";
+    }
+
+    if (normalizedMessage.includes("cpu")) {
+        return "CPU Load High";
+    }
+
+    if (normalizedMessage.includes("payload")) {
+        return "Payload Error";
+    }
+
+    return "Telemetry Anomaly";
+}
+
+
+function formatUtcTime(timestamp) {
+    if (!timestamp) {
+        return "Unknown time";
+    }
+
+    const date = new Date(timestamp);
+
+    if (Number.isNaN(date.getTime())) {
+        return "Invalid time";
+    }
+
+    const formattedTime = date.toLocaleTimeString(
+        "en-GB",
+        {
+            timeZone: "UTC",
+            hour: "2-digit",
+            minute: "2-digit",
+            hour12: false
+        }
+    );
+
+    return `${formattedTime} UTC`;
+}
+
+
 export default function AlertsCard({ alerts }) {
 
+    const safeAlerts = Array.isArray(alerts)
+        ? alerts
+        : [];
+
+    // Display newest alerts first.
+    const orderedAlerts = [...safeAlerts].reverse();
+
     return (
+        <section className="alerts-section">
 
-        <div>
+            <div className="alerts-section-header">
 
-            <h2>Recent Alerts</h2>
+                <div>
+                    <h2>Recent Alerts</h2>
 
-            {alerts.length === 0 ? (
+                    <p className="alerts-section-description">
+                        Latest telemetry anomalies detected by MissionVault AI.
+                    </p>
+                </div>
 
-                <p>No alerts.</p>
+                <span className="alerts-count">
+                    {safeAlerts.length}
+                </span>
+
+            </div>
+
+            {orderedAlerts.length === 0 ? (
+
+                <div className="alerts-empty-state">
+
+                    <span className="alerts-empty-indicator" />
+
+                    <div>
+                        <strong>No recent alerts</strong>
+
+                        <p>
+                            Current telemetry is within normal limits.
+                        </p>
+                    </div>
+
+                </div>
 
             ) : (
 
-                alerts.map((alert, index) => (
+                <div className="alerts-grid">
 
-                    <div key={index}>
+                    {orderedAlerts.map((alert, index) => {
 
-                        <strong>
+                        const telemetry =
+                            alert?.telemetry || {};
 
-                            {alert.analysis.severity.toUpperCase()}
+                        const analysis =
+                            alert?.analysis || {};
 
-                        </strong>
+                        const severity =
+                            analysis.severity?.toLowerCase()
+                            || "unknown";
 
-                        <ul>
+                        const messages =
+                            Array.isArray(analysis.alerts)
+                                ? analysis.alerts
+                                : [];
 
-                            {alert.analysis.alerts.map((message, i) => (
+                        const satelliteId =
+                            telemetry.satellite_id
+                            || "Unknown satellite";
 
-                                <li key={i}>{message}</li>
+                        const timestamp =
+                            telemetry.timestamp;
 
-                            ))}
+                        return (
+                            <article
+                                className={
+                                    `alert-card alert-card-${severity}`
+                                }
+                                key={`${timestamp || "alert"}-${index}`}
+                            >
 
-                        </ul>
+                                <div className="alert-card-header">
 
-                    </div>
+                                    <span
+                                        className={
+                                            `alert-severity-badge ` +
+                                            `alert-severity-${severity}`
+                                        }
+                                    >
+                                        {severity.toUpperCase()}
+                                    </span>
 
-                ))
+                                    <time
+                                        className="alert-time"
+                                        dateTime={timestamp}
+                                    >
+                                        {formatUtcTime(timestamp)}
+                                    </time>
+
+                                </div>
+
+                                <div className="alert-card-events">
+
+                                    {messages.length === 0 ? (
+
+                                        <div className="alert-event">
+
+                                            <h3>
+                                                Telemetry Anomaly
+                                            </h3>
+
+                                            <p>
+                                                An anomaly was detected,
+                                                but no description was provided.
+                                            </p>
+
+                                        </div>
+
+                                    ) : (
+
+                                        messages.map(
+                                            (message, messageIndex) => (
+
+                                                <div
+                                                    className="alert-event"
+                                                    key={
+                                                        `${message}-${messageIndex}`
+                                                    }
+                                                >
+
+                                                    <h3>
+                                                        {getAlertTitle(message)}
+                                                    </h3>
+
+                                                    <p>
+                                                        {message}
+                                                    </p>
+
+                                                </div>
+
+                                            )
+                                        )
+
+                                    )}
+
+                                </div>
+
+                                <div className="alert-card-footer">
+
+                                    <span>Satellite</span>
+
+                                    <strong>
+                                        {satelliteId}
+                                    </strong>
+
+                                </div>
+
+                            </article>
+                        );
+
+                    })}
+
+                </div>
 
             )}
 
-        </div>
-
+        </section>
     );
-
 }

@@ -109,3 +109,390 @@ code {
   padding: 4px 8px;
   background: var(--code-bg);
 }
+
+/* ========================================
+   Mission Status Card
+======================================== */
+
+.mission-status-card {
+    padding: 20px;
+    margin-bottom: 20px;
+    border-radius: 12px;
+    border: 2px solid;
+    background-color: #ffffff;
+    transition:
+        background-color 0.3s ease,
+        border-color 0.3s ease,
+        box-shadow 0.3s ease;
+}
+
+.mission-status-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+}
+
+.mission-status-header h2 {
+    margin: 0;
+}
+
+.mission-status-value {
+    margin: 12px 0 0;
+    font-size: 1.8rem;
+    font-weight: 700;
+}
+
+/* Status indicator */
+
+.mission-status-indicator {
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    display: inline-block;
+}
+
+/* Healthy */
+
+.status-healthy {
+    border-color: #22c55e;
+    background-color: #f0fdf4;
+}
+
+.status-healthy .mission-status-value {
+    color: #15803d;
+}
+
+.status-healthy .mission-status-indicator {
+    background-color: #22c55e;
+    box-shadow: 0 0 10px rgba(34, 197, 94, 0.6);
+}
+
+/* Warning */
+
+.status-warning {
+    border-color: #f97316;
+    background-color: #fff7ed;
+}
+
+.status-warning .mission-status-value {
+    color: #c2410c;
+}
+
+.status-warning .mission-status-indicator {
+    background-color: #f97316;
+    box-shadow: 0 0 10px rgba(249, 115, 22, 0.6);
+}
+
+/* Critical */
+
+.status-critical {
+    border-color: #ef4444;
+    background-color: #fef2f2;
+}
+
+.status-critical .mission-status-value {
+    color: #b91c1c;
+}
+
+.status-critical .mission-status-indicator {
+    background-color: #ef4444;
+    box-shadow: 0 0 10px rgba(239, 68, 68, 0.6);
+}
+
+/* Unknown */
+
+.status-unknown {
+    border-color: #6b7280;
+    background-color: #f9fafb;
+}
+
+.status-unknown .mission-status-value {
+    color: #374151;
+}
+
+.status-unknown .mission-status-indicator {
+    background-color: #6b7280;
+}
+
+/* ========================================
+   Alert Cards
+======================================== */
+
+.alerts-section {
+    padding: 24px;
+    margin: 24px 0;
+    text-align: left;
+}
+
+.alerts-section-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 16px;
+    margin-bottom: 20px;
+}
+
+.alerts-section-header h2 {
+    margin: 0 0 6px;
+}
+
+.alerts-section-description {
+    color: var(--text);
+    font-size: 0.9rem;
+}
+
+.alerts-count {
+    min-width: 38px;
+    height: 38px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    background: var(--code-bg);
+    color: var(--text-h);
+    font-size: 0.9rem;
+    font-weight: 700;
+}
+
+/* Alert grid */
+
+.alerts-grid {
+    display: grid;
+    grid-template-columns:
+        repeat(auto-fit, minmax(280px, 1fr));
+    gap: 16px;
+}
+
+/* Individual alert card */
+
+.alert-card {
+    overflow: hidden;
+    border: 1px solid var(--border);
+    border-left-width: 5px;
+    border-radius: 12px;
+    background: var(--bg);
+    box-shadow: var(--shadow);
+    transition:
+        transform 0.2s ease,
+        box-shadow 0.2s ease;
+}
+
+.alert-card:hover {
+    transform: translateY(-2px);
+}
+
+/* Severity card borders */
+
+.alert-card-critical {
+    border-left-color: #ef4444;
+}
+
+.alert-card-warning {
+    border-left-color: #f97316;
+}
+
+.alert-card-normal {
+    border-left-color: #22c55e;
+}
+
+.alert-card-unknown {
+    border-left-color: #6b7280;
+}
+
+/* Card header */
+
+.alert-card-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 14px 16px;
+    border-bottom: 1px solid var(--border);
+}
+
+/* Severity badges */
+
+.alert-severity-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 5px 10px;
+    border-radius: 999px;
+    font-size: 0.72rem;
+    font-weight: 800;
+    letter-spacing: 0.06em;
+}
+
+.alert-severity-critical {
+    color: #991b1b;
+    background-color: #fee2e2;
+    border: 1px solid #fecaca;
+}
+
+.alert-severity-warning {
+    color: #9a3412;
+    background-color: #ffedd5;
+    border: 1px solid #fed7aa;
+}
+
+.alert-severity-normal {
+    color: #166534;
+    background-color: #dcfce7;
+    border: 1px solid #bbf7d0;
+}
+
+.alert-severity-unknown {
+    color: #374151;
+    background-color: #f3f4f6;
+    border: 1px solid #d1d5db;
+}
+
+/* Alert time */
+
+.alert-time {
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 0.78rem;
+    white-space: nowrap;
+}
+
+/* Alert messages */
+
+.alert-card-events {
+    padding: 16px;
+}
+
+.alert-event + .alert-event {
+    padding-top: 14px;
+    margin-top: 14px;
+    border-top: 1px solid var(--border);
+}
+
+.alert-event h3 {
+    margin: 0 0 5px;
+    color: var(--text-h);
+    font-size: 1.05rem;
+}
+
+.alert-event p {
+    color: var(--text);
+    font-size: 0.85rem;
+    line-height: 1.5;
+}
+
+/* Satellite information */
+
+.alert-card-footer {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 12px 16px;
+    border-top: 1px solid var(--border);
+    background: var(--code-bg);
+}
+
+.alert-card-footer span {
+    color: var(--text);
+    font-size: 0.78rem;
+}
+
+.alert-card-footer strong {
+    color: var(--text-h);
+    font-family: var(--mono);
+    font-size: 0.8rem;
+    word-break: break-word;
+}
+
+/* No-alert state */
+
+.alerts-empty-state {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 18px;
+    border: 1px solid #86efac;
+    border-radius: 12px;
+    background-color: #f0fdf4;
+    color: #166534;
+}
+
+.alerts-empty-state p {
+    margin-top: 3px;
+    color: #15803d;
+    font-size: 0.85rem;
+}
+
+.alerts-empty-indicator {
+    width: 14px;
+    height: 14px;
+    flex-shrink: 0;
+    border-radius: 50%;
+    background-color: #22c55e;
+    box-shadow:
+        0 0 10px rgba(34, 197, 94, 0.6);
+}
+
+/* Responsive layout */
+
+@media (max-width: 640px) {
+
+    .alerts-section {
+        padding: 16px;
+    }
+
+    .alerts-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .alert-card-header {
+        align-items: flex-start;
+        flex-direction: column;
+    }
+
+    .alert-card-footer {
+        align-items: flex-start;
+        flex-direction: column;
+    }
+}
+
+/* Dark mode adjustments */
+
+@media (prefers-color-scheme: dark) {
+
+    .alert-severity-critical {
+        color: #fecaca;
+        background-color: rgba(127, 29, 29, 0.45);
+        border-color: #991b1b;
+    }
+
+    .alert-severity-warning {
+        color: #fed7aa;
+        background-color: rgba(124, 45, 18, 0.45);
+        border-color: #9a3412;
+    }
+
+    .alert-severity-normal {
+        color: #bbf7d0;
+        background-color: rgba(20, 83, 45, 0.45);
+        border-color: #166534;
+    }
+
+    .alert-severity-unknown {
+        color: #e5e7eb;
+        background-color: rgba(55, 65, 81, 0.6);
+        border-color: #6b7280;
+    }
+
+    .alerts-empty-state {
+        color: #bbf7d0;
+        background-color: rgba(20, 83, 45, 0.35);
+        border-color: #166534;
+    }
+
+    .alerts-empty-state p {
+        color: #86efac;
+    }
+}
