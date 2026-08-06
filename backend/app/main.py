@@ -2,26 +2,16 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.database.database import Base, engine
+from app.database.migrate import ensure_telemetry_midnight_columns
 
-# Import this so SQLAlchemy registers the model
-# before create_all() runs.
 from app.models.telemetry import TelemetryRecord
-
+from app.routers.auth import router as auth_router
 from app.routers.telemetry import router as telemetry_router
 
+# Run schema repair for older SQLite databases.
+ensure_telemetry_midnight_columns(engine)
 
-# ---------------------------------------------------------
-# Create database tables
-# ---------------------------------------------------------
-
-Base.metadata.create_all(
-    bind=engine
-)
-
-
-# ---------------------------------------------------------
-# FastAPI application
-# ---------------------------------------------------------
+Base.metadata.create_all(bind=engine)
 
 app = FastAPI(
     title="MissionVault AI API",
@@ -32,49 +22,20 @@ app = FastAPI(
     version="0.1.0"
 )
 
-
-# ---------------------------------------------------------
-# CORS
-# ---------------------------------------------------------
-
 app.add_middleware(
     CORSMiddleware,
-
-    allow_origins=[
-        "http://localhost:5173",
-    ],
-
+    allow_origins=["http://localhost:5173"],
     allow_credentials=True,
-
-    allow_methods=[
-        "*"
-    ],
-
-    allow_headers=[
-        "*"
-    ],
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
-
-# ---------------------------------------------------------
-# Include telemetry routes
-# ---------------------------------------------------------
-
-app.include_router(
-    telemetry_router
-)
-
-
-# ---------------------------------------------------------
-# Root endpoint
-# ---------------------------------------------------------
+app.include_router(auth_router)
+app.include_router(telemetry_router)
 
 @app.get("/")
 def root():
-
     return {
-        "message": (
-            "MissionVault AI Backend Running"
-        ),
+        "message": "MissionVault AI Backend Running",
         "version": "0.1.0"
     }

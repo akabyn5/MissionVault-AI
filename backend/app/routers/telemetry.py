@@ -1,7 +1,10 @@
-from fastapi import APIRouter, Query
+# backend/app/routers/telemetry.py
+from typing import Literal
+
+from fastapi import APIRouter, Query, Depends
 
 from app.schemas.telemetry import Telemetry
-
+from app.services.auth_service import get_current_user
 from app.services.telemetry_service import (
     save_telemetry,
     get_all_telemetry,
@@ -18,11 +21,9 @@ from app.services.telemetry_service import (
     get_telemetry_by_satellite,
     search_telemetry
 )
-
 from app.services.analysis_service import analyze_telemetry
 
 router = APIRouter()
-
 
 @router.get("/health")
 def health_check():
@@ -31,78 +32,74 @@ def health_check():
         "service": "MissionVault AI"
     }
 
-
 @router.post("/telemetry")
 def receive_telemetry(data: Telemetry):
     print("\nTelemetry received:")
     print(data)
 
-    # Analyze telemetry
     analysis = analyze_telemetry(data)
-
-    # Store telemetry
-    save_telemetry(data, analysis)
+    record = save_telemetry(data, analysis)
 
     return {
         "message": "Telemetry received successfully",
         "satellite": data.satellite_id,
-        "analysis": analysis
+        "analysis": analysis,
+        "midnight": record.get("midnight", {})
     }
 
-
 @router.get("/telemetry")
-def list_telemetry():
+def list_telemetry(current_user=Depends(get_current_user)):
     return get_all_telemetry()
 
-
 @router.get("/telemetry/latest")
-def latest_telemetry():
+def latest_telemetry(current_user=Depends(get_current_user)):
     return get_latest_telemetry()
 
-
 @router.get("/telemetry/stats")
-def telemetry_stats():
+def telemetry_stats(current_user=Depends(get_current_user)):
     return get_telemetry_stats()
 
 @router.get("/telemetry/metrics")
-def telemetry_metrics():
+def telemetry_metrics(current_user=Depends(get_current_user)):
     return get_health_metrics()
 
 @router.get("/telemetry/time")
-def telemetry_time():
+def telemetry_time(current_user=Depends(get_current_user)):
     return get_time_statistics()
 
 @router.get("/telemetry/summary")
-def telemetry_summary():
+def telemetry_summary(current_user=Depends(get_current_user)):
     return get_mission_summary()
 
 @router.get("/telemetry/trends")
-def telemetry_trends():
+def telemetry_trends(current_user=Depends(get_current_user)):
     return get_trend_analysis()
 
 @router.get("/telemetry/anomalies")
-def telemetry_anomalies():
+def telemetry_anomalies(current_user=Depends(get_current_user)):
     return get_anomalies()
 
 @router.get("/telemetry/severity/{level}")
-def telemetry_by_severity(level: str):
+def telemetry_by_severity(level: str, current_user=Depends(get_current_user)):
     return get_telemetry_by_severity(level)
 
 @router.get("/telemetry/satellite/{satellite_id}")
-def telemetry_by_satellite(satellite_id: str):
+def telemetry_by_satellite(satellite_id: str, current_user=Depends(get_current_user)):
     return get_telemetry_by_satellite(satellite_id)
 
 @router.get("/telemetry/search")
 def telemetry_search(
+    current_user=Depends(get_current_user),
     satellite_id: str | None = Query(default=None),
-    severity: str | None = Query(default=None)
+    severity: Literal["normal", "warning", "critical"] | None = Query(default=None),
+    limit: int = Query(default=100, ge=1, le=500)
 ):
     return search_telemetry(
         satellite_id=satellite_id,
-        severity=severity
+        severity=severity,
+        limit=limit
     )
 
 @router.get("/telemetry/dashboard")
-def telemetry_dashboard():
+def telemetry_dashboard(current_user=Depends(get_current_user)):
     return get_dashboard_data()
-
